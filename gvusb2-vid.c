@@ -320,17 +320,26 @@ struct regval {
 	u8 val;
 };
 
-static void gvusb2_stk1150_reset_gpio(struct gvusb2_vid *dev)
+static int gvusb2_stk1150_reset_gpio(struct gvusb2_vid *dev)
 {
+	int ret;
+
 	/* set video decoder pin to output */
-	gvusb2_set_reg_mask(&dev->gv, 0x0002, 0x08, 0x08);
+	ret = gvusb2_set_reg_mask(&dev->gv, 0x0002, 0x08, 0x08);
+	if (ret < 0)
+		return ret;
+
 	/* set video decoder pin to high */
-	gvusb2_set_reg_mask(&dev->gv, 0x0000, 0x08, 0x08);
+	ret = gvusb2_set_reg_mask(&dev->gv, 0x0000, 0x08, 0x08);
+	if (ret < 0)
+		return ret;
+
+	return 0;
 }
 
-static void gvusb2_stk1150_init_inner(struct gvusb2_vid *dev)
+static int gvusb2_stk1150_init_inner(struct gvusb2_vid *dev)
 {
-	int i;
+	int i, ret;
 
 	static const struct regval phase3[] = {
 		{0x000d, 0x00},
@@ -362,28 +371,54 @@ static void gvusb2_stk1150_init_inner(struct gvusb2_vid *dev)
 		{0xffff, 0xff}
 	};
 
-	for (i = 0; phase3[i].reg != 0xffff; i++)
-		gvusb2_write_reg(&dev->gv, phase3[i].reg, phase3[i].val);
+	for (i = 0; phase3[i].reg != 0xffff; i++) {
+		ret = gvusb2_write_reg(&dev->gv, phase3[i].reg, phase3[i].val);
+		if (ret < 0)
+			return ret;
+	}
+
+	return 0;
 }
 
-static void gvusb2_stk1150_reset_slave_ics(struct gvusb2_vid *dev)
+static int gvusb2_stk1150_reset_slave_ics(struct gvusb2_vid *dev)
 {
+	int ret;
 	u8 reg_0000;
 
-	gvusb2_read_reg(&dev->gv, 0x0000, &reg_0000);
+	ret = gvusb2_read_reg(&dev->gv, 0x0000, &reg_0000);
+	if (ret < 0)
+		return ret;
 
 	/* toggle video decoder slave reset pins via GPIO */
-	gvusb2_write_reg(&dev->gv, 0x0000, reg_0000 & 0xf7);
+	ret = gvusb2_write_reg(&dev->gv, 0x0000, reg_0000 & 0xf7);
+	if (ret < 0)
+		return ret;
 	usleep_range(10 * USEC_PER_MSEC, 20 * USEC_PER_MSEC);
-	gvusb2_write_reg(&dev->gv, 0x0000, (reg_0000 & 0xf7) | 0x08);
+	ret = gvusb2_write_reg(&dev->gv, 0x0000, (reg_0000 & 0xf7) | 0x08);
+	if (ret < 0)
+		return ret;
 	usleep_range(10 * USEC_PER_MSEC, 20 * USEC_PER_MSEC);
+
+	return 0;
 }
 
-static void gvusb2_stk1150_init(struct gvusb2_vid *dev)
+static int gvusb2_stk1150_init(struct gvusb2_vid *dev)
 {
-	gvusb2_stk1150_reset_gpio(dev);
-	gvusb2_stk1150_reset_slave_ics(dev);
-	gvusb2_stk1150_init_inner(dev);
+	int ret;
+
+	ret = gvusb2_stk1150_reset_gpio(dev);
+	if (ret < 0)
+		return ret;
+
+	ret = gvusb2_stk1150_reset_slave_ics(dev);
+	if (ret < 0)
+		return ret;
+
+	ret = gvusb2_stk1150_init_inner(dev);
+	if (ret < 0)
+		return ret;
+
+	return 0;
 }
 
 /*****************************************************************************
@@ -485,10 +520,12 @@ int gvusb2_vid_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	dev->intf = intf;
 
 	/* initialize the stk1150 in the gvusb2 */
-	gvusb2_stk1150_init(dev);
+	ret = gvusb2_stk1150_init(dev);
+	if (ret < 0)
+		goto free_gvusb2;
 
 	/* allocate URBs */
-	gvusb2_vid_allocate_urbs(dev);
+	ret = gvusb2_vid_allocate_urbs(dev);
 	if (ret < 0)
 		goto free_gvusb2;
 

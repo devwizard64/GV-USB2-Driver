@@ -19,12 +19,14 @@
 
 static int gvusb2_i2c_busy_wait(struct gvusb2_vid *dev, u8 wait_mask)
 {
+	int ret;
 	int attempts;
 	u8 flag;
 
-	attempts = 0;
-	while (attempts < 100) {
-		gvusb2_read_reg(&dev->gv, 0x0201, &flag);
+	for (attempts = 0; attempts < 100; attempts++) {
+		ret = gvusb2_read_reg(&dev->gv, 0x0201, &flag);
+		if (ret < 0)
+			return ret;
 		if (flag & wait_mask)
 			return 0;
 	}
@@ -178,10 +180,14 @@ int gvusb2_i2c_register(struct gvusb2_vid *dev)
 	client->addr = 0x44;
 
 	/* set i2c clock divider */
-	gvusb2_write_reg(&dev->gv, 0x0202, 0x08);
+	ret = gvusb2_write_reg(&dev->gv, 0x0202, 0x08);
+	if (ret < 0)
+		return ret;
 
 	/* disable alternate i2c */
-	gvusb2_write_reg(&dev->gv, 0x02ff, 0x00);
+	ret = gvusb2_write_reg(&dev->gv, 0x02ff, 0x00);
+	if (ret < 0)
+		return ret;
 
 	return 0;
 }
