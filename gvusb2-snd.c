@@ -75,6 +75,7 @@ static struct snd_pcm_hardware gvusb2_snd_hw = {
 /* predefines */
 static int gvusb2_snd_submit_isoc(struct gvusb2_snd *dev);
 static void gvusb2_snd_cancel_isoc(struct gvusb2_snd *dev);
+void gvusb2_snd_free_isoc(struct gvusb2_snd *dev);
 
 /*****************************************************************************
  *  Alsa Stuff
@@ -250,6 +251,20 @@ static const struct snd_pcm_ops gvusb2_snd_capture_ops = {
 	.page      = gvusb2_snd_pcm_page,
 };
 
+static void gvusb2_snd_card_free(struct snd_card *card)
+{
+	struct gvusb2_snd *dev = card->private_data;
+
+	/* free isoc urbs */
+	gvusb2_snd_free_isoc(dev);
+
+	/* free the internal gvusb2 device */
+	gvusb2_free(&dev->gv);
+
+	/* free me */
+	kfree(dev);
+}
+
 int gvusb2_snd_alsa_init(struct gvusb2_snd *dev)
 {
 	static int idx;
@@ -270,6 +285,9 @@ int gvusb2_snd_alsa_init(struct gvusb2_snd *dev)
 			&dev->card);
 	if (ret < 0)
 		return ret;
+
+	dev->card->private_data = dev;
+	dev->card->private_free = gvusb2_snd_card_free;
 
 	ret = snd_device_new(dev->card, SNDRV_DEV_LOWLEVEL, dev,
 		&gvusb2_snd_device_ops);
@@ -301,12 +319,6 @@ int gvusb2_snd_alsa_init(struct gvusb2_snd *dev)
 	}
 
 	return 0;
-}
-
-static void gvusb2_snd_alsa_free(struct gvusb2_snd *dev)
-{
-	snd_card_free_when_closed(dev->card);
-	dev->card = NULL;
 }
 
 /*****************************************************************************
@@ -540,7 +552,7 @@ int gvusb2_snd_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	return 0;
 
 free_alsa:
-	gvusb2_snd_alsa_free(dev);
+	snd_card_free(dev->card);
 
 free_gvusb2:
 	gvusb2_free(&dev->gv);
@@ -559,17 +571,8 @@ void gvusb2_snd_disconnect(struct usb_interface *intf)
 	dev = usb_get_intfdata(intf);
 	usb_set_intfdata(intf, NULL);
 
-	/* free isoc urbs */
-	gvusb2_snd_free_isoc(dev);
-
 	/* free the sound card */
-	gvusb2_snd_alsa_free(dev);
-
-	/* free the internal gvusb2 device */
-	gvusb2_free(&dev->gv);
-
-	/* free me */
-	kfree(dev);
+	snd_card_free_when_closed(dev->card);
 }
 
 static struct usb_driver gvusb2_snd_usb_driver = {
