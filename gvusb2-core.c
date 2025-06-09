@@ -71,7 +71,7 @@ int gvusb2_set_reg_mask(struct gvusb2_dev *dev, u16 reg, u8 mask, u8 value)
 	if (ret < 0)
 		return ret;
 
-	gvusb2_write_reg(dev, reg, (reg_val & ~mask) | value);
+	ret = gvusb2_write_reg(dev, reg, (reg_val & ~mask) | value);
 	if (ret < 0)
 		return ret;
 
@@ -92,16 +92,25 @@ int gvusb2_free(struct gvusb2_dev *dev)
 
 int gvusb2_snd_reset_adc(struct gvusb2_dev *dev)
 {
-	/* TODO: return errors */
+	int ret;
 
 	/* set audio GPIO pins to output */
-	gvusb2_set_reg_mask(dev, 0x0002, 0x30, 0x30);
-	gvusb2_set_reg_mask(dev, 0x0000, 0x30, 0x10);
+	ret = gvusb2_set_reg_mask(dev, 0x0002, 0x30, 0x30);
+	if (ret < 0)
+		return ret;
+	ret = gvusb2_set_reg_mask(dev, 0x0000, 0x30, 0x10);
+	if (ret < 0)
+		return ret;
 
 	/* disable AC97 interface */
-	gvusb2_write_reg(dev, 0x0500, 0x00);
+	ret = gvusb2_write_reg(dev, 0x0500, 0x00);
+	if (ret < 0)
+		return ret;
+
 	/* enable I2S interface */
-	gvusb2_write_reg(dev, 0x050c, 0x01);
+	ret = gvusb2_write_reg(dev, 0x050c, 0x01);
+	if (ret < 0)
+		return ret;
 
 	return 0;
 }

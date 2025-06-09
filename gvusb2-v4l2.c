@@ -132,8 +132,8 @@ static int gvusb2_vb2_start_streaming(struct vb2_queue *vb2q,
 					unsigned int count)
 {
 	int ret;
+	s32 reg;
 	struct gvusb2_vid *dev = vb2_get_drv_priv(vb2q);
-	s32 reg_07;
 
 	/* start mutex */
 	if (mutex_lock_interruptible(&dev->v4l2_lock))
@@ -143,30 +143,53 @@ static int gvusb2_vb2_start_streaming(struct vb2_queue *vb2q,
 	dev->sequence = 0;
 
 	/* set cropping */
-	reg_07 = i2c_smbus_read_byte_data(&dev->i2c_client, 0x07);
-	i2c_smbus_write_byte_data(&dev->i2c_client, 0x07, reg_07 & 0x0f);
-	i2c_smbus_write_byte_data(&dev->i2c_client, 0x08, 0x13);
-	i2c_smbus_write_byte_data(&dev->i2c_client, 0x09, 0xf4);
-	i2c_smbus_write_byte_data(&dev->i2c_client, 0x0a, 0x12);
-	i2c_smbus_write_byte_data(&dev->i2c_client, 0x0b, 0xd2);
+	reg = i2c_smbus_read_byte_data(&dev->i2c_client, 0x07);
+	if (reg < 0)
+		goto i2c_err;
+	reg = i2c_smbus_write_byte_data(&dev->i2c_client, 0x07, reg & 0x0f);
+	if (reg < 0)
+		goto i2c_err;
+	reg = i2c_smbus_write_byte_data(&dev->i2c_client, 0x08, 0x13);
+	if (reg < 0)
+		goto i2c_err;
+	reg = i2c_smbus_write_byte_data(&dev->i2c_client, 0x09, 0xf4);
+	if (reg < 0)
+		goto i2c_err;
+	reg = i2c_smbus_write_byte_data(&dev->i2c_client, 0x0a, 0x12);
+	if (reg < 0)
+		goto i2c_err;
+	reg = i2c_smbus_write_byte_data(&dev->i2c_client, 0x0b, 0xd2);
+	if (reg < 0)
+		goto i2c_err;
 
 	/* start tw9910 */
 	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_stream, 1);
 
 	/* start gvusb2 */
-	gvusb2_write_reg(&dev->gv, 0x0100, 0xb3);
+	ret = gvusb2_write_reg(&dev->gv, 0x0100, 0xb3);
+	if (ret < 0)
+		goto err;
 	/* probably don't need to set no VBI */
-	gvusb2_write_reg(&dev->gv, 0x0103, 0x00);
+	ret = gvusb2_write_reg(&dev->gv, 0x0103, 0x00);
+	if (ret < 0)
+		goto err;
 
 	/* submit urbs */
 	ret = gvusb2_vid_submit_urbs(dev);
 	if (ret < 0)
-		return ret;
+		goto err;
 
+	ret = 0;
+
+err:
 	/* stop mutex */
 	mutex_unlock(&dev->v4l2_lock);
 
-	return 0;
+	return ret;
+
+i2c_err:
+	ret = reg;
+	goto err;
 }
 
 static void gvusb2_vb2_stop_streaming(struct vb2_queue *vb2q)
@@ -238,43 +261,73 @@ int gvusb2_vb2_setup(struct gvusb2_vid *dev)
 
 static int gvusb2_s_ctrl(struct v4l2_ctrl *ctrl)
 {
+	int ret;
+	s32 reg;
 	struct gvusb2_vid *dev = container_of(ctrl->handler,
 		struct gvusb2_vid, ctrl_handler);
 
 	switch (ctrl->id) {
 	case V4L2_CID_BRIGHTNESS:
-		i2c_smbus_write_byte_data(&dev->i2c_client, 0x10,
+		reg = i2c_smbus_write_byte_data(&dev->i2c_client, 0x10,
 			(ctrl->val + 0x80) & 0xff);
+		if (reg < 0)
+			return reg;
 		break;
 	case V4L2_CID_CONTRAST:
-		i2c_smbus_write_byte_data(&dev->i2c_client, 0x11,
+		reg = i2c_smbus_write_byte_data(&dev->i2c_client, 0x11,
 			ctrl->val);
+		if (reg < 0)
+			return reg;
 		break;
 	case V4L2_CID_SATURATION:
-		i2c_smbus_write_byte_data(&dev->i2c_client, 0x13,
+		reg = i2c_smbus_write_byte_data(&dev->i2c_client, 0x13,
 			ctrl->val);
-		i2c_smbus_write_byte_data(&dev->i2c_client, 0x14,
+		if (reg < 0)
+			return reg;
+		reg = i2c_smbus_write_byte_data(&dev->i2c_client, 0x14,
 			ctrl->val);
+		if (reg < 0)
+			return reg;
 		break;
 	case V4L2_CID_HUE:
-		i2c_smbus_write_byte_data(&dev->i2c_client, 0x15,
+		reg = i2c_smbus_write_byte_data(&dev->i2c_client, 0x15,
 			(ctrl->val + 0x80) & 0xff);
+		if (reg < 0)
+			return reg;
 		break;
 	case V4L2_CID_SHARPNESS:
-		i2c_smbus_write_byte_data(&dev->i2c_client, 0x12,
+		reg = i2c_smbus_write_byte_data(&dev->i2c_client, 0x12,
 			(ctrl->val & 0x0f) | 0x50);
+		if (reg < 0)
+			return reg;
 		break;
 	case GVUSB2_CID_VERTICAL_START:
-		gvusb2_write_reg(&dev->gv, 0x0112, ctrl->val);
-		gvusb2_write_reg(&dev->gv, 0x0113, 0);
-		gvusb2_write_reg(&dev->gv, 0x0116, ctrl->val + 0xf0);
-		gvusb2_write_reg(&dev->gv, 0x0117, 0);
+		ret = gvusb2_write_reg(&dev->gv, 0x0112, ctrl->val);
+		if (ret < 0)
+			return ret;
+		ret = gvusb2_write_reg(&dev->gv, 0x0113, 0);
+		if (ret < 0)
+			return ret;
+		ret = gvusb2_write_reg(&dev->gv, 0x0116, ctrl->val + 0xf0);
+		if (ret < 0)
+			return ret;
+		ret = gvusb2_write_reg(&dev->gv, 0x0117, 0);
+		if (ret < 0)
+			return ret;
 		break;
 	case GVUSB2_CID_HORIZONTAL_START:
-		gvusb2_write_reg(&dev->gv, 0x0110, ctrl->val);
-		gvusb2_write_reg(&dev->gv, 0x0111, 0);
-		gvusb2_write_reg(&dev->gv, 0x0114, ctrl->val + 0xa0);
-		gvusb2_write_reg(&dev->gv, 0x0115, 0x05);
+		ret = gvusb2_write_reg(&dev->gv, 0x0110, ctrl->val);
+		if (ret < 0)
+			return ret;
+		ret = gvusb2_write_reg(&dev->gv, 0x0111, 0);
+		if (ret < 0)
+			return ret;
+		ret = gvusb2_write_reg(&dev->gv, 0x0114, ctrl->val + 0xa0);
+		if (ret < 0)
+			return ret;
+		ret = gvusb2_write_reg(&dev->gv, 0x0115, 0x05);
+		if (ret < 0)
+			return ret;
 		break;
 	}
 
@@ -380,7 +433,7 @@ static int gvusb2_vidioc_s_input(struct file *file, void *priv, unsigned int i)
 	if (reg < 0)
 		return reg;
 
-	i2c_smbus_write_byte_data(&dev->i2c_client, 0x02, (reg & 0xc3) | val);
+	reg = i2c_smbus_write_byte_data(&dev->i2c_client, 0x02, (reg & 0xc3) | val);
 	if (reg < 0)
 		return reg;
 
@@ -538,6 +591,7 @@ int gvusb2_v4l2_register(struct gvusb2_vid *dev)
 {
 	int i;
 	int ret;
+	s32 reg;
 
 	static const struct i2c_regval phase6[] = {
 			{0x06, 0x00},
@@ -602,13 +656,18 @@ int gvusb2_v4l2_register(struct gvusb2_vid *dev)
 		&gvusb2_tw9910_i2c_board_info, 0);
 
 	/* init tw9910 */
-	for (i = 0; phase6[i].reg != 0xff; i++)
-		i2c_smbus_write_byte_data(&dev->i2c_client,
+	for (i = 0; phase6[i].reg != 0xff; i++) {
+		reg = i2c_smbus_write_byte_data(&dev->i2c_client,
 			phase6[i].reg, phase6[i].val);
+		if (reg < 0)
+			return reg;
+	}
 
 	/* set STK1150 to always double word */
 	/* not quite sure the importance */
-	gvusb2_set_reg_mask(&dev->gv, 0x05f0, 0x08, 0x08);
+	ret = gvusb2_set_reg_mask(&dev->gv, 0x05f0, 0x08, 0x08);
+	if (ret < 0)
+		return ret;
 
 	return 0;
 
